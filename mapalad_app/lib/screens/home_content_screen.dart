@@ -294,7 +294,7 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                         _buildCategoriesRow(),
                         const SizedBox(height: 22),
                         _buildSectionHeader(
-                          _selectedCategoryId != null ? _categoryName(_selectedCategoryId!) : 'Top Services',
+                          _selectedCategoryId != null ? _categoryName(_selectedCategoryId!) : 'Services',
                           _showAllServices,
                           showSeeMore: _selectedCategoryId == null,
                         ),
