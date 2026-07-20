@@ -15,7 +15,7 @@ import 'employee_placeholder_screen.dart';
 import 'receptionist/receptionist_main_nav_screen.dart';
 import 'therapist/therapist_main_nav_screen.dart';
 
-const String kApiBaseUrl = 'https://mapalad-massage-spa-reservation-app.onrender.com';
+const String kApiBaseUrl = 'http://10.0.2.2:8080';
 
 Widget _screenForRole(String role) {
   switch (role) {
