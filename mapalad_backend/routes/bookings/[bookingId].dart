@@ -5,7 +5,7 @@ import '../../lib/notification_service.dart';
 import '../../lib/utils/jwt_utils.dart';
 
 Future<Response> onRequest(RequestContext context, String bookingId) async {
-  if (context.request.method != HttpMethod.patch) {
+  if (context.request.method != HttpMethod.patch && context.request.method != HttpMethod.delete) {
     return Response(statusCode: 405, body: 'Method not allowed');
   }
 
@@ -44,6 +44,32 @@ Future<Response> onRequest(RequestContext context, String bookingId) async {
       body: {'success': false, 'message': 'Booking not found'},
     );
   }
+
+  // --- NEW: DELETE path — customer only, own booking only, only when already cancelled ---
+  if (context.request.method == HttpMethod.delete) {
+    if (callerRole != 'customer' && callerRole != null && callerRole != '') {
+      // Only customers delete their own history entries; receptionist/therapist have no delete action.
+    }
+
+    if (booking['userId'] != userId) {
+      return Response.json(
+        statusCode: 403,
+        body: {'success': false, 'message': 'You do not have permission to delete this booking'},
+      );
+    }
+
+    if (booking['status'] != 'cancelled') {
+      return Response.json(
+        statusCode: 400,
+        body: {'success': false, 'message': 'Only a cancelled booking can be deleted'},
+      );
+    }
+
+    await FirestoreRestService.deleteDocument('bookings', bookingId);
+
+    return Response.json(body: {'success': true, 'bookingId': bookingId, 'deleted': true});
+  }
+  // --- END NEW ---
 
   final body = jsonDecode(await context.request.body()) as Map<String, dynamic>;
   final serviceName = booking['serviceName'] as String? ?? 'the service';

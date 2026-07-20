@@ -71,6 +71,9 @@ Future<Response> onRequest(RequestContext context) async {
   double totalSales = 0;
   double todayCompletedSales = 0;
   double yesterdayCompletedSales = 0;
+  final salesPerServiceMap = <String, double>{};
+  final salesPerServiceByBranchMap = <String, Map<String, double>>{};
+  final bookingsPerBranchMap = <String, int>{};
   for (final booking in allBookings) {
     if (booking['status'] != 'completed') continue;
     final price = (booking['price'] as num?)?.toDouble() ?? 0.0;
@@ -81,6 +84,20 @@ Future<Response> onRequest(RequestContext context) async {
     } else if (appointmentDate == yesterdayStr) {
       yesterdayCompletedSales += price;
     }
+
+    // Sales per Service — revenue sum per service, completed bookings only
+    final serviceName = booking['serviceName'] as String? ?? 'Unknown Service';
+    final branchName = booking['branchName'] as String? ?? 'Unknown Branch';
+
+    // Sales per Service — revenue sum per service, completed bookings only
+    salesPerServiceMap[serviceName] = (salesPerServiceMap[serviceName] ?? 0) + price;
+
+    // Sales per Service, split by branch — same totals, broken down for the branch filter
+    final byBranch = salesPerServiceByBranchMap.putIfAbsent(serviceName, () => <String, double>{});
+    byBranch[branchName] = (byBranch[branchName] ?? 0) + price;
+
+    // Bookings per Branch — completed booking count per branch
+    bookingsPerBranchMap[branchName] = (bookingsPerBranchMap[branchName] ?? 0) + 1;
   }
 
   double salesGrowthPercent = 0;
@@ -89,6 +106,21 @@ Future<Response> onRequest(RequestContext context) async {
   } else if (todayCompletedSales > 0) {
     salesGrowthPercent = 100;
   }
+
+  final salesPerServiceEntries = salesPerServiceMap.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  final salesPerService = salesPerServiceEntries.take(5).map((e) => {
+        'serviceName': e.key,
+        'totalSales': e.value,
+        'salesByBranch': salesPerServiceByBranchMap[e.key] ?? <String, double>{},
+      }).toList();
+
+  final bookingsPerBranchEntries = bookingsPerBranchMap.entries.toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  final bookingsPerBranch = bookingsPerBranchEntries.map((e) => {
+        'branchName': e.key,
+        'completedCount': e.value,
+      }).toList();
 
   // Bookings Today — non-cancelled bookings with appointmentDate == today
   final bookingsTodayCount = allBookings.where((booking) {
@@ -115,5 +147,7 @@ Future<Response> onRequest(RequestContext context) async {
     'bookingsToday': bookingsTodayCount,
     'filterDate': filterDate,
     'bookings': bookingsJson,
+    'salesPerService': salesPerService,
+    'bookingsPerBranch': bookingsPerBranch,
   });
 }

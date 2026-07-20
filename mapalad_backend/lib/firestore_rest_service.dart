@@ -104,6 +104,11 @@ class FirestoreRestService {
     );
     if (response.statusCode != 200) throw Exception('Firestore update failed: ${response.body}');
   }
+  static Future<void> deleteDocument(String collection, String docId) async {
+    final client = await GoogleAuthService.getClient();
+    final response = await client.delete(Uri.parse('$_baseUrl/$collection/$docId'));
+    if (response.statusCode != 200) throw Exception('Firestore delete failed: ${response.body}');
+  }
 
   static Future<List<Map<String, dynamic>>> queryWhereEquals(
     String collection,
