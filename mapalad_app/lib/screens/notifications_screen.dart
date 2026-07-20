@@ -21,6 +21,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _isLoading = true;
   String? _loadError;
   List<NotificationModel> _notifications = [];
+  bool _isMarkingAll = false;
 
   @override
   void initState() {
@@ -73,6 +74,39 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  Future<void> _handleMarkAllAsRead() async {
+    final unread = _notifications.where((n) => !n.isRead).toList();
+    if (unread.isEmpty || _isMarkingAll) return;
+
+    setState(() {
+      _isMarkingAll = true;
+      for (final n in unread) {
+        final index = _notifications.indexWhere((x) => x.notificationId == n.notificationId);
+        if (index != -1) {
+          _notifications[index] = NotificationModel(
+            notificationId: n.notificationId,
+            recipientId: n.recipientId,
+            recipientRole: n.recipientRole,
+            bookingId: n.bookingId,
+            type: n.type,
+            title: n.title,
+            message: n.message,
+            isRead: true,
+            createdAt: n.createdAt,
+          );
+        }
+      }
+    });
+
+    try {
+      await Future.wait(unread.map((n) => widget.markAsRead(n.notificationId)));
+    } catch (_) {
+      // Silent — read state resyncs on next refresh either way.
+    } finally {
+      if (mounted) setState(() => _isMarkingAll = false);
+    }
+  }
+
   String _relativeTime(DateTime dateTime) {
     final diff = DateTime.now().difference(dateTime);
     if (diff.inSeconds < 60) return '${diff.inSeconds} sec';
@@ -117,6 +151,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildHeader() {
+    final hasUnread = _notifications.any((n) => !n.isRead);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Row(
@@ -130,7 +165,37 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           ),
           const SizedBox(width: 14),
-          Text('Notification', style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 24)),
+          Expanded(
+            child: Text('Notification', style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 24)),
+          ),
+          if (hasUnread)
+            GestureDetector(
+              onTap: _isMarkingAll ? null : _handleMarkAllAsRead,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBrown,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.brown.withOpacity(0.35),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: _isMarkingAll
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : Text(
+                        'Mark all as read',
+                        style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12.5),
+                      ),
+              ),
+            ),
         ],
       ),
     );
