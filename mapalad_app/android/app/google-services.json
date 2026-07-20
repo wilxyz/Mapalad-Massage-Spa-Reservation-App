@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "268365777292",
+    "project_id": "mapalad-app",
+    "storage_bucket": "mapalad-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:268365777292:android:2d87dcc4dba0bac2caeea9",
+        "android_client_info": {
+          "package_name": "com.example.mapalad_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "268365777292-ddbsfa69lgo3qhhamv0ul2l0tpgi6pdf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mapalad_app",
+            "certificate_hash": "827b49a7de156239d5493371280cd6eda583e323"
+          }
+        },
+        {
+          "client_id": "268365777292-rlrmjk7d1ok3brdgk5sv99kf2e5n443a.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCGgKum5yYSkOUb_Xv1eI8FiIdDBqzwUMs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "268365777292-rlrmjk7d1ok3brdgk5sv99kf2e5n443a.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

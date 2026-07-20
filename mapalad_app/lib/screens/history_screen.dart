@@ -1,0 +1,482 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../theme/app_theme.dart';
+import '../models/booking_model.dart';
+import '../services/home_api_service.dart';
+import '../widgets/booking_receipt_card.dart';
+import 'notifications_screen.dart';
+
+class HistoryScreen extends StatefulWidget {
+  const HistoryScreen({super.key});
+
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _StatusStyle {
+  final Color background;
+  final Color text;
+  final String label;
+  const _StatusStyle(this.background, this.text, this.label);
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  static const List<String> _monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  bool _isLoading = true;
+  String? _loadError;
+  List<BookingModel> _bookings = [];
+  int _unreadCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBookings();
+    _refreshUnreadCount();
+  }
+
+  Future<void> _refreshUnreadCount() async {
+    try {
+      final notifications = await HomeApiService.fetchNotifications();
+      if (!mounted) return;
+      setState(() {
+        _unreadCount = notifications.where((n) => !n.isRead).length;
+      });
+    } catch (_) {
+      // Badge just won't update this cycle.
+    }
+  }
+
+  void _openNotifications() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NotificationsScreen(
+          fetchNotifications: HomeApiService.fetchNotifications,
+          markAsRead: HomeApiService.markNotificationRead,
+        ),
+      ),
+    );
+    _refreshUnreadCount();
+  }
+
+  Future<void> _loadBookings() async {
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+    try {
+      final bookings = await HomeApiService.fetchMyBookings();
+      bookings.sort((a, b) => b.appointmentDateTime.compareTo(a.appointmentDateTime));
+      setState(() {
+        _bookings = bookings;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _loadError = 'Could not load booking history. Is the backend running?';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Map<String, List<BookingModel>> _groupByMonth(List<BookingModel> bookings) {
+    final grouped = <String, List<BookingModel>>{};
+    for (final booking in bookings) {
+      final date = booking.appointmentDateTime;
+      final key = '${date.year}-${date.month.toString().padLeft(2, '0')}';
+      grouped.putIfAbsent(key, () => []).add(booking);
+    }
+    return grouped;
+  }
+
+  String _monthLabel(String key) {
+    final month = int.parse(key.split('-')[1]);
+    return _monthNames[month - 1];
+  }
+
+  _StatusStyle _statusStyle(String status) {
+    switch (status) {
+      case 'completed':
+        return const _StatusStyle(Color(0xFFD9F2DD), Color(0xFF3FA34D), 'COMPLETED');
+      case 'cancelled':
+        return const _StatusStyle(Color(0xFFFADCDC), Color(0xFFE15252), 'CANCELLED');
+      case 'confirmed':
+        return const _StatusStyle(Color(0xFFDCEAFB), Color(0xFF2E6FCB), 'CONFIRMED');
+      case 'pending':
+      default:
+        return const _StatusStyle(Color(0xFFFCE7C6), Color(0xFFCB8E2E), 'RESERVED');
+    }
+  }
+
+  void _showReceipt(BookingModel booking) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            BookingReceiptCard(booking: booking),
+            Positioned(
+              top: -14,
+              right: -14,
+              child: GestureDetector(
+                onTap: () => Navigator.pop(dialogContext),
+                child: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: AppColors.darkBrown,
+                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 26),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmCancel(BookingModel booking) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Cancel this booking?',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 18),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        actions: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                    _cancelBooking(booking);
+                  },
+                  style: TextButton.styleFrom(
+                    backgroundColor: const Color(0xFFE15252),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text(
+                    'Yes, Cancel this booking',
+                    style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  style: TextButton.styleFrom(
+                    backgroundColor: AppColors.darkBrown,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text(
+                    'No',
+                    style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _cancelBooking(BookingModel booking) async {
+    try {
+      await HomeApiService.cancelBooking(booking.bookingId);
+      setState(() {
+        final index = _bookings.indexWhere((b) => b.bookingId == booking.bookingId);
+        if (index != -1) {
+          _bookings[index] = BookingModel(
+            bookingId: booking.bookingId,
+            serviceId: booking.serviceId,
+            serviceName: booking.serviceName,
+            categoryName: booking.categoryName,
+            duration: booking.duration,
+            price: booking.price,
+            branchId: booking.branchId,
+            branchName: booking.branchName,
+            therapistId: booking.therapistId,
+            therapistName: booking.therapistName,
+            appointmentDate: booking.appointmentDate,
+            timeSlot: booking.timeSlot,
+            addOnId: booking.addOnId,
+            addOnName: booking.addOnName,
+            fullName: booking.fullName,
+            contactNumber: booking.contactNumber,
+            email: booking.email,
+            specialRequests: booking.specialRequests,
+            status: 'cancelled',
+            createdAt: booking.createdAt,
+          );
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not cancel booking. Please try again.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_loadError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_loadError!, textAlign: TextAlign.center, style: GoogleFonts.poppins(color: AppColors.darkBrown)),
+              const SizedBox(height: 12),
+              ElevatedButton(onPressed: _loadBookings, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_bookings.isEmpty) {
+      return RefreshIndicator(
+        color: AppColors.darkBrown,
+        onRefresh: _loadBookings,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(child: Text('No bookings yet.', style: GoogleFonts.poppins(color: AppColors.brown))),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final grouped = _groupByMonth(_bookings);
+    final sortedKeys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    return Container(
+      color: Colors.white,
+      child: RefreshIndicator(
+        color: AppColors.darkBrown,
+        onRefresh: _loadBookings,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 140),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('Booking History', style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 28)),
+                  ),
+                  GestureDetector(
+                    onTap: _openNotifications,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        CircleAvatar(
+                          radius: 22,
+                          backgroundColor: AppColors.darkBrown,
+                          child: const Icon(Icons.notifications, color: Colors.white, size: 20),
+                        ),
+                        if (_unreadCount > 0)
+                          Positioned(
+                            top: -2,
+                            right: -2,
+                            child: Container(
+                              width: 14,
+                              height: 14,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE15252),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 1.5),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              for (final key in sortedKeys) ...[
+                Text(_monthLabel(key), style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 22)),
+                const SizedBox(height: 12),
+                for (final booking in grouped[key]!) ...[
+                  _SwipeToCancelCard(
+                    booking: booking,
+                    onCancelTap: () => _confirmCancel(booking),
+                    child: _buildBookingCard(booking),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                const SizedBox(height: 8),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookingCard(BookingModel booking) {
+    final style = _statusStyle(booking.status);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.darkBrown, width: 2.2),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.brown.withOpacity(0.35),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(booking.serviceName, style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 16)),
+                const SizedBox(height: 2),
+                if (booking.categoryName != null && booking.categoryName!.isNotEmpty)
+                  Text(booking.categoryName!, style: GoogleFonts.poppins(color: AppColors.brown, fontWeight: FontWeight.w600, fontSize: 11)),
+                if (booking.duration.isNotEmpty)
+                  Text('Duration: ${booking.duration}', style: GoogleFonts.poppins(color: AppColors.brown, fontWeight: FontWeight.w600, fontSize: 11)),
+                const SizedBox(height: 4),
+                Text('PHP ${booking.price.toStringAsFixed(2)}', style: GoogleFonts.poppins(color: AppColors.brown, fontWeight: FontWeight.w800, fontSize: 13)),
+              ],
+            ),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(color: style.background, borderRadius: BorderRadius.circular(20)),
+                child: Text(style.label, style: GoogleFonts.poppins(color: style.text, fontWeight: FontWeight.w800, fontSize: 11)),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: () => _showReceipt(booking),
+                child: Icon(Icons.remove_red_eye_outlined, color: Colors.grey[500], size: 20),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SwipeToCancelCard extends StatefulWidget {
+  final BookingModel booking;
+  final Widget child;
+  final VoidCallback onCancelTap;
+
+  const _SwipeToCancelCard({
+    required this.booking,
+    required this.child,
+    required this.onCancelTap,
+  });
+
+  @override
+  State<_SwipeToCancelCard> createState() => _SwipeToCancelCardState();
+}
+
+class _SwipeToCancelCardState extends State<_SwipeToCancelCard> {
+  static const double _revealWidth = 88;
+  double _dragExtent = 0;
+  bool _isDragging = false;
+
+  bool get _canCancel => widget.booking.status == 'pending' || widget.booking.status == 'confirmed';
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_canCancel) {
+      return widget.child;
+    }
+
+    return GestureDetector(
+      onHorizontalDragUpdate: (details) {
+        setState(() {
+          _isDragging = true;
+          _dragExtent = (_dragExtent + details.delta.dx).clamp(-_revealWidth, 0.0);
+        });
+      },
+      onHorizontalDragEnd: (details) {
+        setState(() {
+          _isDragging = false;
+          _dragExtent = _dragExtent <= -_revealWidth / 2 ? -_revealWidth : 0.0;
+        });
+      },
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Container(
+                color: const Color(0xFFE15252),
+                alignment: Alignment.centerRight,
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() => _dragExtent = 0);
+                    widget.onCancelTap();
+                  },
+                  child: SizedBox(
+                    width: _revealWidth,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Cancel',
+                          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          AnimatedContainer(
+            duration: _isDragging ? Duration.zero : const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            transform: Matrix4.translationValues(_dragExtent, 0, 0),
+            child: widget.child,
+          ),
+        ],
+      ),
+    );
+  }
+}
