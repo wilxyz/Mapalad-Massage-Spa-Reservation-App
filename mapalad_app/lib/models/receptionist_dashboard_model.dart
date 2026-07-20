@@ -1,5 +1,7 @@
 import 'booking_model.dart';
 import 'top_service_model.dart';
+import 'sales_per_service_model.dart';
+import 'branch_bookings_model.dart';
 
 class ReceptionistDashboardModel {
   final List<TopServiceModel> topServices;
@@ -8,6 +10,8 @@ class ReceptionistDashboardModel {
   final int bookingsToday;
   final String filterDate;
   final List<BookingModel> bookings;
+  final List<SalesPerServiceModel> salesPerService;
+  final List<BranchBookingsModel> bookingsPerBranch;
 
   ReceptionistDashboardModel({
     required this.topServices,
@@ -16,6 +20,8 @@ class ReceptionistDashboardModel {
     required this.bookingsToday,
     required this.filterDate,
     required this.bookings,
+    required this.salesPerService,
+    required this.bookingsPerBranch,
   });
 
   factory ReceptionistDashboardModel.fromJson(Map<String, dynamic> json) {
@@ -29,6 +35,12 @@ class ReceptionistDashboardModel {
       filterDate: json['filterDate'] as String? ?? '',
       bookings: (json['bookings'] as List)
           .map((e) => BookingModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      salesPerService: (json['salesPerService'] as List? ?? [])
+          .map((e) => SalesPerServiceModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      bookingsPerBranch: (json['bookingsPerBranch'] as List? ?? [])
+          .map((e) => BranchBookingsModel.fromJson(e as Map<String, dynamic>))
           .toList(),
     );
   }

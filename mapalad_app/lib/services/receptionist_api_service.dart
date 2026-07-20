@@ -5,6 +5,7 @@ import '../models/receptionist_dashboard_model.dart';
 import '../models/therapist_model.dart';
 import '../models/therapist_schedule_model.dart';
 import '../models/notification_model.dart';
+import '../models/branch_model.dart';
 import '../screens/login_screen.dart';  // provides kApiBaseUrl
 
 class ReceptionistApiService {
@@ -35,6 +36,15 @@ class ReceptionistApiService {
       return list.map((e) => TherapistModel.fromJson(e as Map<String, dynamic>)).toList();
     }
     throw Exception(data['message'] ?? 'Failed to load therapists');
+  }
+  static Future<List<BranchModel>> fetchBranches() async {
+    final response = await http.get(Uri.parse('$kApiBaseUrl/branches'));
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (data['success'] == true) {
+      final list = data['branches'] as List;
+      return list.map((e) => BranchModel.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    throw Exception(data['message'] ?? 'Failed to load branches');
   }
   static Future<List<TherapistScheduleModel>> fetchTherapistSchedule({required String date}) async {
     final response = await http.get(

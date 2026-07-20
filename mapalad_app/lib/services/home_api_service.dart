@@ -141,6 +141,17 @@ class HomeApiService {
       throw Exception(data['message'] ?? 'Failed to cancel booking');
     }
   }
+  static Future<void> deleteBooking(String bookingId) async {
+    final headers = await _authHeaders();
+    final response = await http.delete(
+      Uri.parse('$kApiBaseUrl/bookings/$bookingId'),
+      headers: headers,
+    );
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (data['success'] != true) {
+      throw Exception(data['message'] ?? 'Failed to delete booking');
+    }
+  }
 
   static Future<Map<String, dynamic>> fetchProfile() async {
     final headers = await _authHeaders();

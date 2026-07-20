@@ -28,11 +28,20 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
 
+  static const List<Map<String, String>> _statusFilters = [
+    {'value': 'all', 'label': 'All'},
+    {'value': 'pending', 'label': 'Reserved'},
+    {'value': 'confirmed', 'label': 'Confirmed'},
+    {'value': 'completed', 'label': 'Completed'},
+    {'value': 'cancelled', 'label': 'Cancelled'},
+  ];
+
   bool _isLoading = true;
   String? _loadError;
   List<BookingModel> _bookings = [];
   DateTime _selectedDate = DateTime.now();
   String _searchQuery = '';
+  String _statusFilter = 'all';
   int _unreadCount = 0;
   String? _profilePicture;
 
@@ -143,12 +152,20 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
   }
 
   List<BookingModel> get _visibleBookings {
-    if (_searchQuery.trim().isEmpty) return _bookings;
-    final query = _searchQuery.trim().toLowerCase();
-    return _bookings.where((b) {
-      return b.fullName.toLowerCase().contains(query) ||
-          b.serviceName.toLowerCase().contains(query);
-    }).toList();
+    Iterable<BookingModel> filtered = _bookings;
+
+    if (_statusFilter != 'all') {
+      filtered = filtered.where((b) => b.status == _statusFilter);
+    }
+
+    if (_searchQuery.trim().isNotEmpty) {
+      final query = _searchQuery.trim().toLowerCase();
+      filtered = filtered.where((b) =>
+          b.fullName.toLowerCase().contains(query) ||
+          b.serviceName.toLowerCase().contains(query));
+    }
+
+    return filtered.toList();
   }
 
   @override
@@ -187,6 +204,8 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildDateBar(),
+                  const SizedBox(height: 12),
+                  _buildStatusFilterBar(),
                   const SizedBox(height: 16),
                   if (_visibleBookings.isEmpty)
                     Padding(
@@ -316,6 +335,50 @@ class _TherapistHomeScreenState extends State<TherapistHomeScreen> {
             Text(_formatDisplayDate(_selectedDate), style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusFilterBar() {
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _statusFilters.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final filter = _statusFilters[index];
+          final isSelected = _statusFilter == filter['value'];
+          return GestureDetector(
+            onTap: () => setState(() => _statusFilter = filter['value']!),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.darkBrown : Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: AppColors.darkBrown, width: 1.6),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: AppColors.brown.withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                filter['label']!,
+                style: GoogleFonts.poppins(
+                  color: isSelected ? Colors.white : AppColors.darkBrown,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

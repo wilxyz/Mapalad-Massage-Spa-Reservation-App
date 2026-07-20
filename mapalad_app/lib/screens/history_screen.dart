@@ -26,9 +26,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
 
+  static const List<Map<String, String>> _statusFilters = [
+    {'value': 'all', 'label': 'All'},
+    {'value': 'pending', 'label': 'Reserved'},
+    {'value': 'confirmed', 'label': 'Confirmed'},
+    {'value': 'completed', 'label': 'Completed'},
+    {'value': 'cancelled', 'label': 'Cancelled'},
+  ];
+
   bool _isLoading = true;
   String? _loadError;
   List<BookingModel> _bookings = [];
+  String _statusFilter = 'all';
   int _unreadCount = 0;
 
   @override
@@ -81,6 +90,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  List<BookingModel> get _visibleBookings {
+    if (_statusFilter == 'all') return _bookings;
+    return _bookings.where((b) => b.status == _statusFilter).toList();
   }
 
   Map<String, List<BookingModel>> _groupByMonth(List<BookingModel> bookings) {
@@ -198,6 +212,69 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  void _confirmDelete(BookingModel booking) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Delete this booking?',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 18),
+        ),
+        content: Text(
+          'This will permanently remove it from your history.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(color: AppColors.brown, fontWeight: FontWeight.w900, fontSize: 13, fontStyle: FontStyle.italic),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        actions: [
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                    _deleteBooking(booking);
+                  },
+                  style: TextButton.styleFrom(
+                    backgroundColor: const Color(0xFF6E6E6E),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text(
+                    'Yes, Delete this booking',
+                    style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  style: TextButton.styleFrom(
+                    backgroundColor: AppColors.darkBrown,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text(
+                    'No',
+                    style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _cancelBooking(BookingModel booking) async {
     try {
       await HomeApiService.cancelBooking(booking.bookingId);
@@ -232,6 +309,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not cancel booking. Please try again.')),
+      );
+    }
+  }
+
+  Future<void> _deleteBooking(BookingModel booking) async {
+    try {
+      await HomeApiService.deleteBooking(booking.bookingId);
+      setState(() {
+        _bookings.removeWhere((b) => b.bookingId == booking.bookingId);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not delete booking. Please try again.')),
       );
     }
   }
@@ -274,7 +365,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
     }
 
-    final grouped = _groupByMonth(_bookings);
+    final visible = _visibleBookings;
+    final grouped = _groupByMonth(visible);
     final sortedKeys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
     return Container(
@@ -322,23 +414,78 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+              _buildStatusFilterBar(),
               const SizedBox(height: 20),
-              for (final key in sortedKeys) ...[
-                Text(_monthLabel(key), style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 22)),
-                const SizedBox(height: 12),
-                for (final booking in grouped[key]!) ...[
-                  _SwipeToCancelCard(
-                    booking: booking,
-                    onCancelTap: () => _confirmCancel(booking),
-                    child: _buildBookingCard(booking),
+              if (visible.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Center(
+                    child: Text('No bookings with this status.', style: GoogleFonts.poppins(color: AppColors.brown)),
                   ),
-                  const SizedBox(height: 14),
+                )
+              else
+                for (final key in sortedKeys) ...[
+                  Text(_monthLabel(key), style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 22)),
+                  const SizedBox(height: 12),
+                  for (final booking in grouped[key]!) ...[
+                    _SwipeToCancelCard(
+                      booking: booking,
+                      onCancelTap: () => _confirmCancel(booking),
+                      onDeleteTap: () => _confirmDelete(booking),
+                      child: _buildBookingCard(booking),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  const SizedBox(height: 8),
                 ],
-                const SizedBox(height: 8),
-              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusFilterBar() {
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _statusFilters.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final filter = _statusFilters[index];
+          final isSelected = _statusFilter == filter['value'];
+          return GestureDetector(
+            onTap: () => setState(() => _statusFilter = filter['value']!),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.darkBrown : Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: AppColors.darkBrown, width: 1.6),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: AppColors.brown.withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                filter['label']!,
+                style: GoogleFonts.poppins(
+                  color: isSelected ? Colors.white : AppColors.darkBrown,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -397,15 +544,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 }
 
+enum _SwipeAction { cancel, delete, none }
+
 class _SwipeToCancelCard extends StatefulWidget {
   final BookingModel booking;
   final Widget child;
   final VoidCallback onCancelTap;
+  final VoidCallback onDeleteTap;
 
   const _SwipeToCancelCard({
     required this.booking,
     required this.child,
     required this.onCancelTap,
+    required this.onDeleteTap,
   });
 
   @override
@@ -417,13 +568,28 @@ class _SwipeToCancelCardState extends State<_SwipeToCancelCard> {
   double _dragExtent = 0;
   bool _isDragging = false;
 
-  bool get _canCancel => widget.booking.status == 'pending' || widget.booking.status == 'confirmed';
+  _SwipeAction get _action {
+    if (widget.booking.status == 'pending' || widget.booking.status == 'confirmed') {
+      return _SwipeAction.cancel;
+    }
+    if (widget.booking.status == 'cancelled') {
+      return _SwipeAction.delete;
+    }
+    return _SwipeAction.none;
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (!_canCancel) {
+    final action = _action;
+    if (action == _SwipeAction.none) {
       return widget.child;
     }
+
+    final isDelete = action == _SwipeAction.delete;
+    final revealColor = isDelete ? const Color(0xFF6E6E6E) : const Color(0xFFE15252);
+    final revealIcon = isDelete ? Icons.delete_outline_rounded : Icons.close_rounded;
+    final revealLabel = isDelete ? 'Delete' : 'Cancel';
+    final onTapAction = isDelete ? widget.onDeleteTap : widget.onCancelTap;
 
     return GestureDetector(
       onHorizontalDragUpdate: (details) {
@@ -444,22 +610,22 @@ class _SwipeToCancelCardState extends State<_SwipeToCancelCard> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(18),
               child: Container(
-                color: const Color(0xFFE15252),
+                color: revealColor,
                 alignment: Alignment.centerRight,
                 child: GestureDetector(
                   onTap: () {
                     setState(() => _dragExtent = 0);
-                    widget.onCancelTap();
+                    onTapAction();
                   },
                   child: SizedBox(
                     width: _revealWidth,
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                        Icon(revealIcon, color: Colors.white, size: 22),
                         const SizedBox(height: 2),
                         Text(
-                          'Cancel',
+                          revealLabel,
                           style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
                         ),
                       ],

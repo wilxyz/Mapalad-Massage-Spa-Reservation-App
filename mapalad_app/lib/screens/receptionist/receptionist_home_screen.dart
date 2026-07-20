@@ -1,10 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../theme/app_theme.dart';
 import '../../models/booking_model.dart';
 import '../../models/receptionist_dashboard_model.dart';
 import '../../models/therapist_model.dart';
+import '../../models/sales_per_service_model.dart';
+import '../../models/branch_bookings_model.dart';
+import '../../models/branch_model.dart';
 import '../../services/home_api_service.dart';
 import '../../services/receptionist_api_service.dart';
 import '../../widgets/booking_receipt_card.dart';
@@ -30,12 +34,23 @@ class _ReceptionistHomeScreenState extends State<ReceptionistHomeScreen> {
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
 
+  static const List<Map<String, String>> _statusFilters = [
+    {'value': 'all', 'label': 'All'},
+    {'value': 'pending', 'label': 'Reserved'},
+    {'value': 'confirmed', 'label': 'Confirmed'},
+    {'value': 'completed', 'label': 'Completed'},
+    {'value': 'cancelled', 'label': 'Cancelled'},
+  ];
+
   bool _isLoading = true;
   String? _loadError;
   ReceptionistDashboardModel? _dashboard;
   List<TherapistModel> _therapists = [];
+  List<BranchModel> _allBranches = [];
+  Set<String> _selectedBranchIds = {};
   DateTime _selectedDate = DateTime.now();
   String _searchQuery = '';
+  String _statusFilter = 'all';
   int _unreadCount = 0;
   String? _profilePicture;
 
@@ -44,6 +59,7 @@ class _ReceptionistHomeScreenState extends State<ReceptionistHomeScreen> {
     super.initState();
     _loadData();
     _loadProfilePicture();
+    _loadBranches();
   }
 
   String _dateKey(DateTime date) =>
@@ -83,6 +99,56 @@ class _ReceptionistHomeScreenState extends State<ReceptionistHomeScreen> {
     } catch (_) {
       // Avatar just won't show a picture this cycle.
     }
+  }
+
+  Future<void> _loadBranches() async {
+    try {
+      final branches = await ReceptionistApiService.fetchBranches();
+      if (!mounted) return;
+      setState(() {
+        _allBranches = branches;
+        _selectedBranchIds = branches.map((b) => b.branchId).toSet();
+      });
+    } catch (_) {
+      // Branch filter just won't be available this cycle; charts show unfiltered data.
+    }
+  }
+
+  bool get _branchFilterReady => _allBranches.isNotEmpty;
+
+  Set<String> get _selectedBranchNames => _allBranches
+      .where((b) => _selectedBranchIds.contains(b.branchId))
+      .map((b) => b.branchName)
+      .toSet();
+
+  Future<void> _openBranchFilter() async {
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => _BranchFilterDialog(
+        branches: _allBranches,
+        initiallySelected: _selectedBranchIds,
+      ),
+    );
+    if (result != null) {
+      setState(() => _selectedBranchIds = result);
+    }
+  }
+
+  double _filteredServiceSales(SalesPerServiceModel service) {
+    if (!_branchFilterReady) return service.totalSales;
+    final names = _selectedBranchNames;
+    if (names.isEmpty) return 0;
+    double sum = 0;
+    service.salesByBranch.forEach((branchName, amount) {
+      if (names.contains(branchName)) sum += amount;
+    });
+    return sum;
+  }
+
+  List<BranchBookingsModel> _filteredBranchBookings(List<BranchBookingsModel> all) {
+    if (!_branchFilterReady) return all;
+    final names = _selectedBranchNames;
+    return all.where((b) => names.contains(b.branchName)).toList();
   }
 
   Future<void> _refreshUnreadCount() async {
@@ -162,18 +228,36 @@ class _ReceptionistHomeScreenState extends State<ReceptionistHomeScreen> {
 
   List<BookingModel> get _visibleBookings {
     final bookings = _dashboard?.bookings ?? [];
-    if (_searchQuery.trim().isEmpty) return bookings;
-    final query = _searchQuery.trim().toLowerCase();
-    return bookings.where((b) {
-      return b.fullName.toLowerCase().contains(query) ||
-          b.serviceName.toLowerCase().contains(query);
-    }).toList();
+    Iterable<BookingModel> filtered = bookings;
+
+    if (_statusFilter != 'all') {
+      filtered = filtered.where((b) => b.status == _statusFilter);
+    }
+
+    if (_searchQuery.trim().isNotEmpty) {
+      final query = _searchQuery.trim().toLowerCase();
+      filtered = filtered.where((b) =>
+          b.fullName.toLowerCase().contains(query) ||
+          b.serviceName.toLowerCase().contains(query));
+    }
+
+    return filtered.toList();
   }
 
   String _firstName(String fullName) {
     final trimmed = fullName.trim();
     if (trimmed.isEmpty) return trimmed;
     return trimmed.split(RegExp(r'\s+')).first;
+  }
+
+  double _niceInterval(double maxValue) {
+    if (maxValue <= 0) return 1;
+    return maxValue / 4;
+  }
+
+  double _barAxisInterval(int maxValue) {
+    if (maxValue <= 5) return 1;
+    return (maxValue / 5).ceilToDouble();
   }
 
   @override
@@ -231,7 +315,15 @@ class _ReceptionistHomeScreenState extends State<ReceptionistHomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
+                  _buildBranchFilterPill(),
+                  const SizedBox(height: 20),
+                  _buildSalesPerServiceChart(dashboard),
+                  const SizedBox(height: 14),
+                  _buildBookingsPerBranchChart(dashboard),
+                  const SizedBox(height: 20),
                   _buildDateBar(),
+                  const SizedBox(height: 12),
+                  _buildStatusFilterBar(),
                   const SizedBox(height: 16),
                   if (_visibleBookings.isEmpty)
                     Padding(
@@ -456,6 +548,284 @@ class _ReceptionistHomeScreenState extends State<ReceptionistHomeScreen> {
     );
   }
 
+  Widget _buildBranchFilterPill() {
+    return GestureDetector(
+      onTap: _allBranches.isEmpty ? null : _openBranchFilter,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.darkBrown,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.brown.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                'Select Branches',
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSalesPerServiceChart(ReceptionistDashboardModel dashboard) {
+    final data = dashboard.salesPerService;
+    final values = [for (final s in data) _filteredServiceSales(s)];
+    final maxSales = values.isEmpty ? 0.0 : values.reduce((a, b) => a > b ? a : b);
+    final chartMaxY = maxSales <= 0 ? 100.0 : maxSales * 1.2;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.darkBrown, width: 2.2),
+        boxShadow: [BoxShadow(color: AppColors.brown.withOpacity(0.35), blurRadius: 8, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Sales per Service', style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 18)),
+          const SizedBox(height: 2),
+          Text('Top 5 services by revenue', style: GoogleFonts.poppins(color: AppColors.brown, fontSize: 11, fontStyle: FontStyle.italic)),
+          const SizedBox(height: 16),
+          if (data.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 30),
+              child: Center(child: Text('No completed sales yet.', style: GoogleFonts.poppins(color: AppColors.brown, fontSize: 12))),
+            )
+          else
+            SizedBox(
+              height: 220,
+              child: LineChart(
+                LineChartData(
+                  minX: 0,
+                  maxX: (data.length - 1).toDouble(),
+                  minY: 0,
+                  maxY: chartMaxY,
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    horizontalInterval: _niceInterval(chartMaxY),
+                    getDrawingHorizontalLine: (value) => FlLine(color: AppColors.lightBrown.withOpacity(0.25), strokeWidth: 1),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  titlesData: FlTitlesData(
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 42,
+                        getTitlesWidget: (value, meta) => Text(
+                          '₱${value.toInt()}',
+                          style: GoogleFonts.poppins(color: AppColors.brown, fontSize: 9),
+                        ),
+                      ),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 50,
+                        interval: 1,
+                        getTitlesWidget: (value, meta) {
+                          final index = value.toInt();
+                          if (index < 0 || index >= data.length) return const SizedBox.shrink();
+                          final name = data[index].serviceName;
+                          final label = name.length > 10 ? '${name.substring(0, 10)}…' : name;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Transform.rotate(
+                              angle: -0.5,
+                              child: Text(
+                                label,
+                                style: GoogleFonts.poppins(color: AppColors.darkBrown, fontSize: 9, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: [
+                        for (int i = 0; i < data.length; i++) FlSpot(i.toDouble(), values[i]),
+                      ],
+                      isCurved: true,
+                      color: AppColors.darkBrown,
+                      barWidth: 3,
+                      dotData: FlDotData(
+                        show: true,
+                        getDotPainter: (spot, percent, bar, index) => FlDotCirclePainter(
+                          radius: 4,
+                          color: AppColors.brown,
+                          strokeWidth: 2,
+                          strokeColor: Colors.white,
+                        ),
+                      ),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: AppColors.lightBrown.withOpacity(0.18),
+                      ),
+                    ),
+                  ],
+                  lineTouchData: LineTouchData(
+                    touchTooltipData: LineTouchTooltipData(
+                      getTooltipColor: (touchedSpot) => AppColors.darkBrown,
+                      getTooltipItems: (touchedSpots) => touchedSpots.map((spot) {
+                        final index = spot.x.toInt();
+                        final name = index >= 0 && index < data.length ? data[index].serviceName : '';
+                        return LineTooltipItem(
+                          '$name\n₱${spot.y.toStringAsFixed(0)}',
+                          GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingsPerBranchChart(ReceptionistDashboardModel dashboard) {
+    final data = _filteredBranchBookings(dashboard.bookingsPerBranch);
+    final maxCount = data.isEmpty ? 0 : data.map((e) => e.completedCount).reduce((a, b) => a > b ? a : b);
+    final chartMaxY = (maxCount + (maxCount == 0 ? 1 : (maxCount * 0.2).ceil())).toDouble();
+    final axisInterval = _barAxisInterval(maxCount);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.darkBrown, width: 2.2),
+        boxShadow: [BoxShadow(color: AppColors.brown.withOpacity(0.35), blurRadius: 8, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Bookings per Branch', style: GoogleFonts.poppins(color: AppColors.darkBrown, fontWeight: FontWeight.w800, fontSize: 18)),
+          const SizedBox(height: 2),
+          Text('Completed bookings, all branches', style: GoogleFonts.poppins(color: AppColors.brown, fontSize: 11, fontStyle: FontStyle.italic)),
+          const SizedBox(height: 16),
+          if (data.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 30),
+              child: Center(child: Text('No completed bookings yet.', style: GoogleFonts.poppins(color: AppColors.brown, fontSize: 12))),
+            )
+          else
+            SizedBox(
+              height: 220,
+              child: BarChart(
+                BarChartData(
+                  maxY: chartMaxY,
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    horizontalInterval: axisInterval,
+                    getDrawingHorizontalLine: (value) => FlLine(color: AppColors.lightBrown.withOpacity(0.25), strokeWidth: 1),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  titlesData: FlTitlesData(
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 30,
+                        interval: axisInterval,
+                        getTitlesWidget: (value, meta) => Text(
+                          '${value.toInt()}',
+                          style: GoogleFonts.poppins(color: AppColors.brown, fontSize: 9),
+                        ),
+                      ),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 50,
+                        getTitlesWidget: (value, meta) {
+                          final index = value.toInt();
+                          if (index < 0 || index >= data.length) return const SizedBox.shrink();
+                          final name = data[index].branchName;
+                          final label = name.length > 9 ? '${name.substring(0, 9)}…' : name;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Transform.rotate(
+                              angle: -0.5,
+                              child: Text(
+                                label,
+                                style: GoogleFonts.poppins(color: AppColors.darkBrown, fontSize: 9, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  barGroups: [
+                    for (int i = 0; i < data.length; i++)
+                      BarChartGroupData(
+                        x: i,
+                        barRods: [
+                          BarChartRodData(
+                            toY: data[i].completedCount.toDouble(),
+                            color: AppColors.brown,
+                            width: 18,
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                            backDrawRodData: BackgroundBarChartRodData(
+                              show: true,
+                              toY: chartMaxY,
+                              color: AppColors.offWhite,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      getTooltipColor: (group) => AppColors.darkBrown,
+                      getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                        final name = groupIndex >= 0 && groupIndex < data.length ? data[groupIndex].branchName : '';
+                        return BarTooltipItem(
+                          '$name\n${rod.toY.toInt()} bookings',
+                          GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDateBar() {
     return GestureDetector(
       onTap: _pickDate,
@@ -471,6 +841,50 @@ class _ReceptionistHomeScreenState extends State<ReceptionistHomeScreen> {
             Text(_formatDisplayDate(_selectedDate), style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusFilterBar() {
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _statusFilters.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final filter = _statusFilters[index];
+          final isSelected = _statusFilter == filter['value'];
+          return GestureDetector(
+            onTap: () => setState(() => _statusFilter = filter['value']!),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.darkBrown : Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: AppColors.darkBrown, width: 1.6),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: AppColors.brown.withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                filter['label']!,
+                style: GoogleFonts.poppins(
+                  color: isSelected ? Colors.white : AppColors.darkBrown,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -729,6 +1143,95 @@ class _ReceptionistHomeScreenState extends State<ReceptionistHomeScreen> {
                   backgroundColor: AppColors.darkBrown,
                   child: const Icon(Icons.close, color: Colors.white, size: 18),
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BranchFilterDialog extends StatefulWidget {
+  final List<BranchModel> branches;
+  final Set<String> initiallySelected;
+
+  const _BranchFilterDialog({
+    required this.branches,
+    required this.initiallySelected,
+  });
+
+  @override
+  State<_BranchFilterDialog> createState() => _BranchFilterDialogState();
+}
+
+class _BranchFilterDialogState extends State<_BranchFilterDialog> {
+  late Set<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = {...widget.initiallySelected};
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Select Branches',
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppColors.darkBrown,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 320),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: widget.branches.map((b) {
+                    final checked = _selected.contains(b.branchId);
+                    return CheckboxListTile(
+                      value: checked,
+                      onChanged: (value) {
+                        setState(() {
+                          if (value == true) {
+                            _selected.add(b.branchId);
+                          } else {
+                            _selected.remove(b.branchId);
+                          }
+                        });
+                      },
+                      title: Text(
+                        b.branchName,
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          color: AppColors.darkBrown,
+                        ),
+                      ),
+                      activeColor: AppColors.brown,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, _selected),
+                child: const Text('Apply'),
               ),
             ),
           ],
