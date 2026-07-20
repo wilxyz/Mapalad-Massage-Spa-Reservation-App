@@ -15,7 +15,17 @@ class GoogleAuthService {
 
   static Future<http.Client> getClient() async {
     if (_client != null) return _client!;
-    final credentialsJson = jsonDecode(await File('service-account.json').readAsString());
+
+    final Map<String, dynamic> credentialsJson;
+    final envJson = Platform.environment['SERVICE_ACCOUNT_JSON'];
+    if (envJson != null && envJson.isNotEmpty) {
+      // Production (Render): credentials come from an environment variable.
+      credentialsJson = jsonDecode(envJson) as Map<String, dynamic>;
+    } else {
+      // Local dev: fall back to the gitignored file on disk.
+      credentialsJson = jsonDecode(await File('service-account.json').readAsString()) as Map<String, dynamic>;
+    }
+
     final credentials = ServiceAccountCredentials.fromJson(credentialsJson);
     final httpClient = HttpClient()..idleTimeout = const Duration(seconds: 20);
     final baseClient = IOClient(httpClient);
